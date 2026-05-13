@@ -1,0 +1,1237 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="BPE Workspace"/>
+  <meta name="theme-color" content="#091929"/>
+  <title>Barcelona Padel Escapes — Workspace</title>
+  <link rel="manifest" href="manifest.json"/>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #F5F0E8; font-family: 'DM Sans', sans-serif; }
+    #root { min-height: 100vh; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- React + Babel (no build needed) -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script type="text/babel" data-presets="react">
+    const { useState, useEffect, useCallback } = React;
+
+
+// ─── Brand palette ────────────────────────────────────────────────────────────
+// #0A3F6A Azul Profundo  #1B8FD4 Mediterráneo  #5BB8E8 Cielo
+// #C8960A Oro Cálido     #E8D5A0 Oro Suave      #091929 Noche
+// #F5F0E8 Arena          #1A1A1A Texto
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+const todayStr = () => new Date().toISOString().split("T")[0];
+const getCurrentWeekKey = () => {
+  const d = new Date(); const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  const mon = new Date(d); mon.setDate(diff);
+  return mon.toISOString().split("T")[0];
+};
+const getWeekLabel = (wk) => {
+  const mon = new Date(wk + "T00:00:00"); const sun = new Date(mon); sun.setDate(sun.getDate() + 6);
+  const f = d => d.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
+  return `${f(mon)} – ${f(sun)}`;
+};
+const fmtDate = (str) => !str ? "" : new Date(str + "T00:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "short" });
+const isOverdue = (d) => !!d && d < todayStr();
+const genId = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+const STORAGE_KEY = "bpe-workspace-standalone-v1";
+
+// ─── Client service options ───────────────────────────────────────────────────
+const PACKS      = ["Padel Pack", "Barcelona Pack"];
+const DURATIONS  = ["2 días", "3 días", "4 días"];
+const FORMATS    = ["Group Trip", "Private"];
+const ACTIVITIES = ["Sevillanas", "Barça Tour", "Sagrada Família", "Teleférico", "Tapas & Wine"];
+
+const DOC_CATEGORIES = [
+  { id: "contract", label: "Contrato", color: "#1B8FD4" },
+  { id: "invoice",  label: "Factura",  color: "#C8960A" },
+  { id: "report",   label: "Informe",  color: "#0A3F6A" },
+  { id: "other",    label: "Otro",     color: "#5BB8E8" },
+];
+const EVENT_TYPES = [
+  { id: "meeting",   label: "Reunión",     color: "#1B8FD4" },
+  { id: "deadline",  label: "Deadline",    color: "#C8960A" },
+  { id: "milestone", label: "Fecha clave", color: "#0A3F6A" },
+];
+const PAYMENT_STATUS = [
+  { id: "pending",  label: "Pendiente", color: "#C8960A" },
+  { id: "partial",  label: "Parcial",   color: "#1B8FD4" },
+  { id: "paid",     label: "Cobrado",   color: "#2a7a3a" },
+];
+const MONTHS = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+const DAYS_SHORT = ["L","M","X","J","V","S","D"];
+
+// ─── Storage ──────────────────────────────────────────────────────────────────
+const defaultData = () => ({ weekTasks:{}, futureTasks:[], notes:[], completedTasks:[], events:[], docs:[], clients:[], expenses:[] });
+const loadData = async () => {
+  try { const v = localStorage.getItem(STORAGE_KEY); if (v) return { ...defaultData(), ...JSON.parse(v) }; } catch(_){}
+  return defaultData();
+};
+const saveData = async (d) => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); } catch(_){} };
+
+// ─── BPE Logo (horizontal, matching real brand) ───────────────────────────────
+const BPELogo = ({ variant = "dark" }) => {
+  // variant: "dark" = for dark header (white text), "light" = for light bg (navy text)
+  const navy  = variant === "dark" ? "#fff"     : "#0A3F6A";
+  const gold  = "#C8960A";
+  const faint = variant === "dark" ? "rgba(255,255,255,.22)" : "rgba(10,63,106,.2)";
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+      {/* Paddle icon */}
+      <svg width="38" height="46" viewBox="0 0 76 92" fill="none" xmlns="http://www.w3.org/2000/svg">
+        {/* Paddle outline */}
+        <path d="M38 4C20 4 8 18 8 34C8 52 20 66 38 74C56 66 68 52 68 34C68 18 56 4 38 4Z" fill={variant==="dark"?"#0A3F6A":"#0A3F6A"} stroke={variant==="dark"?"rgba(255,255,255,.15)":"rgba(10,63,106,.0)"} strokeWidth="1"/>
+        {/* Handle */}
+        <rect x="32" y="72" width="12" height="18" rx="3" fill={variant==="dark"?"#0A3F6A":"#0A3F6A"}/>
+        {/* Handle grip lines */}
+        <rect x="34" y="74.5" width="8" height="2" rx="1" fill={gold} opacity="0.8"/>
+        <rect x="34" y="79" width="8" height="2" rx="1" fill={gold} opacity="0.6"/>
+        <rect x="34" y="83.5" width="8" height="2" rx="1" fill={gold} opacity="0.4"/>
+        {/* Sagrada Familia inside paddle — cream/sand fill */}
+        <g fill={variant==="dark"?"rgba(245,240,232,.9)":"rgba(245,240,232,.95)"}>
+          {/* Center tall tower */}
+          <rect x="35" y="18" width="6" height="34" rx="0.5"/>
+          <polygon points="38,10 34,20 42,20"/>
+          {/* Left medium tower */}
+          <rect x="25" y="26" width="5" height="26" rx="0.5"/>
+          <polygon points="27.5,19 24,28 31,28"/>
+          {/* Right medium tower */}
+          <rect x="46" y="26" width="5" height="26" rx="0.5"/>
+          <polygon points="48.5,19 45,28 52,28"/>
+          {/* Far left small */}
+          <rect x="16" y="33" width="4" height="19" rx="0.5"/>
+          <polygon points="18,27 15,35 21,35"/>
+          {/* Far right small */}
+          <rect x="56" y="33" width="4" height="19" rx="0.5"/>
+          <polygon points="58,27 55,35 61,35"/>
+          {/* Base */}
+          <rect x="10" y="50" width="56" height="3" rx="0.5"/>
+        </g>
+        {/* Gold ball */}
+        <circle cx="38" cy="46" r="8" fill={gold}/>
+        <path d="M32.5 43.5 Q38 49 43.5 43.5" stroke="#E8D5A0" strokeWidth="1.2" fill="none"/>
+        {/* Holes dots on paddle */}
+        <circle cx="18" cy="24" r="2" fill={variant==="dark"?"rgba(91,184,232,.55)":"rgba(91,184,232,.7)"}/>
+        <circle cx="18" cy="33" r="2" fill={variant==="dark"?"rgba(91,184,232,.55)":"rgba(91,184,232,.7)"}/>
+        <circle cx="58" cy="24" r="2" fill={variant==="dark"?"rgba(91,184,232,.55)":"rgba(91,184,232,.7)"}/>
+        <circle cx="58" cy="33" r="2" fill={variant==="dark"?"rgba(91,184,232,.55)":"rgba(91,184,232,.7)"}/>
+      </svg>
+
+      {/* Gold vertical divider */}
+      <div style={{ width:"1px", height:38, background:`linear-gradient(to bottom, transparent, ${gold}, transparent)`, opacity:0.6, flexShrink:0 }}/>
+
+      {/* Text block */}
+      <div>
+        <div style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:18, color:navy, letterSpacing:"0.07em", lineHeight:1, marginBottom:1 }}>
+          BARCELONA
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:0 }}>
+          <span style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:13, color:gold, letterSpacing:"0.12em" }}>PADEL </span>
+          <span style={{ fontFamily:"'Fraunces',serif", fontStyle:"italic", fontWeight:300, fontSize:13, color:navy, letterSpacing:"0.06em", opacity:0.85, marginLeft:4 }}>Escapes</span>
+        </div>
+        <div style={{ marginTop:4, width:48, height:"1px", background:gold, opacity:0.5 }}/>
+        <div style={{ fontSize:8, color: variant==="dark"?"rgba(255,255,255,.3)":"rgba(10,63,106,.38)", fontWeight:700, letterSpacing:"0.22em", textTransform:"uppercase", marginTop:3 }}>Workspace</div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Icons ────────────────────────────────────────────────────────────────────
+const Ico = ({ n, s=15 }) => {
+  const p = {
+    check:   <polyline points="20 6 9 17 4 12"/>,
+    plus:    <><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>,
+    trash:   <><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6M10 11v6M14 11v6M9 6V4h6v2"/></>,
+    x:       <><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>,
+    chevR:   <polyline points="9 18 15 12 9 6"/>,
+    chevL:   <polyline points="15 18 9 12 15 6"/>,
+    cal:     <><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></>,
+    list:    <><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></>,
+    clock:   <><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>,
+    note:    <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></>,
+    hist:    <><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-5"/></>,
+    warn:    <><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></>,
+    link:    <><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></>,
+    folder:  <><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></>,
+    extlink: <><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></>,
+    wallet:  <><path d="M20 12V22H4V12"/><path d="M22 7H2v5h20V7z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></>,
+    user:    <><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></>,
+    euro:    <><path d="M4 10h12M4 14h12M19.5 5a9.5 9.5 0 0 0-15 8.5 9.5 9.5 0 0 0 15 8.5"/></>,
+    back:    <polyline points="15 18 9 12 15 6"/>,
+    edit:    <><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></>,
+  };
+  return <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{p[n]}</svg>;
+};
+
+// ─── Shared components ────────────────────────────────────────────────────────
+const Field = ({ label, children }) => (
+  <div style={{ marginBottom: 14 }}>
+    <label style={{ display:"block", fontSize:10, fontWeight:700, color:"#8a7a5a", textTransform:"uppercase", letterSpacing:"0.12em", marginBottom:6 }}>{label}</label>
+    {children}
+  </div>
+);
+const Empty = ({ text }) => (
+  <div style={{ padding:"16px 0", textAlign:"center", color:"#b8a888", fontSize:13, fontStyle:"italic" }}>{text}</div>
+);
+const GhostBtn = ({ onClick, children, title }) => (
+  <button className="ghost-btn" title={title} onClick={onClick}
+    style={{ background:"transparent", border:"none", cursor:"pointer", color:"#b8a888", padding:4, borderRadius:6, display:"flex", alignItems:"center", transition:"color .15s" }}>{children}</button>
+);
+const inputSt = { width:"100%", background:"#fff", border:"1.5px solid #E0D5C4", borderRadius:8, padding:"9px 12px", fontSize:13, outline:"none", color:"#1A1A1A", fontFamily:"'DM Sans',sans-serif" };
+const BtnPrimary = ({ onClick, children, style={} }) => (
+  <button className="btn-primary" onClick={onClick}
+    style={{ display:"flex", alignItems:"center", gap:6, padding:"8px 18px", background:"#0A3F6A", color:"#F5F0E8", border:"none", borderRadius:8, cursor:"pointer", fontSize:12, fontFamily:"'DM Sans',sans-serif", fontWeight:700, letterSpacing:"0.04em", transition:"all .15s", ...style }}>
+    {children}
+  </button>
+);
+
+function TaskRow({ task, onToggle, onDelete, onPromote }) {
+  const overdue = !task.done && isOverdue(task.deadline);
+  const high = task.priority === "high";
+  const bg = task.done ? "#fff" : high ? "#FFF8EE" : "#fff";
+  const border = task.done ? "1px solid #E8DFD0" : high ? "1.5px solid #C8960A" : "1px solid #E8DFD0";
+  return (
+    <div className="taskrow" style={{ display:"flex", alignItems:"flex-start", gap:6, padding:"8px 12px", background:bg, borderRadius:10, border, transition:"all .15s", opacity: task.done ? 0.55 : 1, position:"relative" }}>
+      {high && !task.done && <div style={{ position:"absolute", top:0, left:0, width:3, height:"100%", background:"#C8960A", borderRadius:"10px 0 0 10px" }}/>}
+      <button style={{ width:20, height:20, borderRadius:"50%", border:`1.5px solid ${task.done?"#0A3F6A":high?"#C8960A":"#C8B898"}`, background: task.done?"#0A3F6A":"transparent", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, color:"#F5F0E8", marginTop:2, transition:"all .15s" }} onClick={onToggle}>
+        {task.done && <Ico n="check" s={10}/>}
+      </button>
+      <div style={{ flex:1 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+          {high && !task.done && <span style={{ fontSize:9, fontWeight:800, color:"#C8960A", textTransform:"uppercase", letterSpacing:"0.08em", background:"#FFF0D0", padding:"1px 6px", borderRadius:4 }}>● Alta</span>}
+          <span style={{ fontSize:14, color: task.done?"#b8a888":high?"#7a5a00":"#1A1A1A", textDecoration: task.done?"line-through":"none", lineHeight:1.4, fontWeight: high&&!task.done ? 600 : 400 }}>{task.text}</span>
+        </div>
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop: task.deadline||task.rolledFrom ? 4 : 0 }}>
+          {task.deadline && !task.done && (overdue
+            ? <span style={{ display:"inline-flex", alignItems:"center", gap:3, background:"#FFF0E0", color:"#C8600A", fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:4, letterSpacing:"0.05em" }}><Ico n="warn" s={9}/> Vencida · {fmtDate(task.deadline)}</span>
+            : <span style={{ display:"inline-flex", alignItems:"center", gap:3, background:"#EEF5FF", color:"#1B8FD4", fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:4, letterSpacing:"0.05em" }}><Ico n="clock" s={9}/> {fmtDate(task.deadline)}</span>
+          )}
+          {task.rolledFrom && <span style={{ background:"#F5F0E8", color:"#b8a888", fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:4, textTransform:"uppercase", letterSpacing:"0.05em" }}>Semana anterior</span>}
+        </div>
+      </div>
+      <div className="taskrow-actions" style={{ opacity:0, display:"flex", gap:4, transition:"opacity .15s", flexShrink:0 }}>
+        {onPromote && <GhostBtn title="Mover a esta semana" onClick={onPromote}><Ico n="arrow" s={13}/></GhostBtn>}
+        <GhostBtn onClick={onDelete}><Ico n="trash" s={13}/></GhostBtn>
+      </div>
+    </div>
+  );
+}
+
+// ─── CLIENT DETAIL ────────────────────────────────────────────────────────────
+const BOOKING_SECTIONS = [
+  { id: "hotel",      label: "Hotel reservado",       icon: "🏨", color: "#0A3F6A" },
+  { id: "pista",      label: "Pista reservada",        icon: "🎾", color: "#1B8FD4" },
+  { id: "actividad",  label: "Actividades reservadas", icon: "🗺️", color: "#C8960A" },
+  { id: "transfer",   label: "Transfer reservado",     icon: "🚐", color: "#5a8a3a" },
+];
+
+function BookingSection({ section, booking, onChange }) {
+  return (
+    <div style={{
+      background: "#fff", border: "1px solid #E8DFD0", borderRadius: 12,
+      overflow: "hidden", borderTop: `3px solid ${section.color}`
+    }}>
+      {/* Header row */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px 12px" }}>
+        <button
+          onClick={() => onChange({ ...booking, done: !booking.done })}
+          style={{
+            width: 28, height: 28, borderRadius: "50%", flexShrink: 0, cursor: "pointer",
+            border: `2px solid ${booking.done ? section.color : "#C8B898"}`,
+            background: booking.done ? section.color : "#fff",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            color: "#fff", transition: "all .2s",
+            boxShadow: booking.done ? `0 0 0 3px ${section.color}22` : "none"
+          }}>
+          {booking.done && <Ico n="check" s={13}/>}
+        </button>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: 16 }}>{section.icon}</span>
+            <span style={{
+              fontSize: 13, fontWeight: 700, color: booking.done ? "#b8a888" : "#1A1A1A",
+              textDecoration: booking.done ? "line-through" : "none",
+              transition: "all .2s"
+            }}>{section.label}</span>
+          </div>
+        </div>
+        {booking.done && (
+          <span style={{ fontSize: 10, color: section.color, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", background: section.color + "14", padding: "3px 9px", borderRadius: 20 }}>
+            ✓ Listo
+          </span>
+        )}
+      </div>
+      {/* Notes input */}
+      <div style={{ padding: "0 16px 14px" }}>
+        <textarea
+          value={booking.note || ""}
+          onChange={e => onChange({ ...booking, note: e.target.value })}
+          placeholder={`Detalles sobre ${section.label.toLowerCase()}…`}
+          rows={2}
+          style={{
+            width: "100%", background: booking.done ? "#fafaf8" : "#F5F0E8",
+            border: "1px solid #E8DFD0", borderRadius: 8,
+            padding: "8px 10px", fontSize: 12, color: "#5a5a4a",
+            fontFamily: "'DM Sans',sans-serif", outline: "none", resize: "none",
+            lineHeight: 1.5, transition: "background .2s"
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ClientDetail({ client, onBack, onUpdate }) {
+  const [newNote, setNewNote] = useState("");
+  const [editingPayment, setEditingPayment] = useState(false);
+  const [payForm, setPayForm] = useState({ amount: client.amount||"", status: client.paymentStatus||"pending", note: client.paymentNote||"" });
+  const ps = PAYMENT_STATUS.find(p => p.id === client.paymentStatus) || PAYMENT_STATUS[0];
+
+  // Bookings: object keyed by section id
+  const bookings = client.bookings || {};
+  const getBooking = (id) => bookings[id] || { done: false, note: "" };
+  const updateBooking = (id, val) => onUpdate({ ...client, bookings: { ...bookings, [id]: val } });
+
+  const addNote = () => { if (!newNote.trim()) return; onUpdate({ ...client, notes: [...(client.notes||[]), { id:genId(), text:newNote.trim(), createdAt:Date.now() }] }); setNewNote(""); };
+  const deleteNote = (id) => onUpdate({ ...client, notes: (client.notes||[]).filter(n => n.id!==id) });
+  const savePayment = () => { onUpdate({ ...client, amount:payForm.amount, paymentStatus:payForm.status, paymentNote:payForm.note }); setEditingPayment(false); };
+
+  const completedBookings = BOOKING_SECTIONS.filter(s => getBooking(s.id).done).length;
+
+  return (
+    <div className="fade">
+      {/* Back header */}
+      <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:12 }}>
+        <button onClick={onBack} style={{ background:"#F5F0E8", border:"1px solid #E0D5C4", cursor:"pointer", color:"#0A3F6A", padding:"7px 10px", borderRadius:8, display:"flex" }}><Ico n="back" s={16}/></button>
+        <div style={{ flex:1 }}>
+          <h2 style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:20, color:"#091929", letterSpacing:"0.04em" }}>{client.name}</h2>
+          <div style={{ fontSize:11, color:"#8a7a5a", textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700, marginTop:2 }}>
+            {client.dates?.length ? client.dates.map(fmtDate).join(" · ") : "Sin fechas"}{client.service ? ` · ${client.service}` : ""}
+          </div>
+        </div>
+        <span style={{ display:"inline-flex", alignItems:"center", gap:5, fontSize:11, color:ps.color, fontWeight:700, background:ps.color+"18", padding:"5px 12px", borderRadius:20, textTransform:"uppercase", letterSpacing:"0.06em", border:`1px solid ${ps.color}33` }}>
+          <div style={{ width:6, height:6, borderRadius:"50%", background:ps.color }}/>{ps.label}
+        </span>
+      </div>
+
+      {/* ── Booking checklist progress bar ── */}
+      <div style={{ background:"#fff", border:"1px solid #E8DFD0", borderRadius:12, padding:"14px 18px", marginBottom:14 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+          <span style={{ fontSize:11, fontWeight:700, color:"#8a7a5a", textTransform:"uppercase", letterSpacing:"0.08em" }}>Progreso de reservas</span>
+          <span style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:18, color: completedBookings===4?"#5a8a3a":"#0A3F6A", letterSpacing:"0.04em" }}>
+            {completedBookings}/4 {completedBookings===4?"✓ Todo listo":""}
+          </span>
+        </div>
+        <div style={{ height:6, background:"#F5F0E8", borderRadius:3, overflow:"hidden" }}>
+          <div style={{ height:"100%", width:`${(completedBookings/4)*100}%`, background: completedBookings===4?"#5a8a3a":"#0A3F6A", borderRadius:3, transition:"width .4s ease" }}/>
+        </div>
+      </div>
+
+      {/* ── 4 Booking sections ── */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:6, marginBottom:14 }}>
+        {BOOKING_SECTIONS.map(section => (
+          <BookingSection
+            key={section.id}
+            section={section}
+            booking={getBooking(section.id)}
+            onChange={val => updateBooking(section.id, val)}
+          />
+        ))}
+      </div>
+
+      {/* ── Contabilidad + Notas ── */}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+        {/* Contabilidad */}
+        <div style={{ gridColumn:"1/-1", background:"#fff", border:"1px solid #E8DFD0", borderRadius:12, padding:14, borderTop:"3px solid #C8960A" }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+              <Ico n="euro" s={15}/> <span style={{ fontSize:12, fontWeight:700, color:"#8a7a5a", textTransform:"uppercase", letterSpacing:"0.08em" }}>Contabilidad</span>
+            </div>
+            <GhostBtn onClick={()=>setEditingPayment(e=>!e)}><Ico n="edit" s={13}/></GhostBtn>
+          </div>
+          {editingPayment ? (
+            <div>
+              <Field label="Importe (€)"><input style={inputSt} type="number" value={payForm.amount} onChange={e=>setPayForm(f=>({...f,amount:e.target.value}))} placeholder="0.00"/></Field>
+              <Field label="Estado">
+                <div style={{ display:"flex", gap:8 }}>
+                  {PAYMENT_STATUS.map(ps=>(
+                    <button key={ps.id} onClick={()=>setPayForm(f=>({...f,status:ps.id}))}
+                      style={{ flex:1, padding:"7px 0", borderRadius:8, border:`1.5px solid ${payForm.status===ps.id?ps.color:"#E0D5C4"}`, background:payForm.status===ps.id?ps.color+"18":"#fff", color:payForm.status===ps.id?ps.color:"#b8a888", fontSize:12, fontFamily:"'DM Sans',sans-serif", fontWeight:700, cursor:"pointer" }}>
+                      {ps.label}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+              <Field label="Nota"><input style={inputSt} value={payForm.note} onChange={e=>setPayForm(f=>({...f,note:e.target.value}))} placeholder="ej. Pagó la mitad al llegar…"/></Field>
+              <BtnPrimary onClick={savePayment}>Guardar</BtnPrimary>
+            </div>
+          ) : (
+            <div style={{ display:"flex", gap:32, flexWrap:"wrap" }}>
+              <div>
+                <div style={{ fontSize:10, color:"#8a7a5a", textTransform:"uppercase", letterSpacing:"0.08em", fontWeight:700, marginBottom:4 }}>Importe</div>
+                <div style={{ fontSize:20, color:"#0A3F6A", fontFamily:"'Bebas Neue',sans-serif", letterSpacing:"0.04em" }}>{client.amount ? `${client.amount} €` : "—"}</div>
+              </div>
+              <div>
+                <div style={{ fontSize:10, color:"#8a7a5a", textTransform:"uppercase", letterSpacing:"0.08em", fontWeight:700, marginBottom:4 }}>Estado</div>
+                <span style={{ display:"inline-flex", alignItems:"center", gap:5, fontSize:13, color:ps.color, fontWeight:700 }}><div style={{ width:8, height:8, borderRadius:"50%", background:ps.color }}/>{ps.label}</span>
+              </div>
+              {client.paymentNote && (
+                <div style={{ flex:1, minWidth:160 }}>
+                  <div style={{ fontSize:10, color:"#8a7a5a", textTransform:"uppercase", letterSpacing:"0.08em", fontWeight:700, marginBottom:4 }}>Nota</div>
+                  <div style={{ fontSize:13, color:"#5a5a4a" }}>{client.paymentNote}</div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Notas */}
+        <div style={{ gridColumn:"1/-1", background:"#fff", border:"1px solid #E8DFD0", borderRadius:12, padding:12, borderTop:"3px solid #1B8FD4" }}>
+          <div style={{ fontSize:11, fontWeight:700, color:"#8a7a5a", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:14 }}>Notas</div>
+          <div style={{ display:"flex", gap:8, marginBottom:12 }}>
+            <textarea style={{ ...inputSt, flex:1, minHeight:60, resize:"vertical" }} value={newNote} onChange={e=>setNewNote(e.target.value)} placeholder="Observaciones, preferencias del cliente…" rows={2}/>
+            <button onClick={addNote} style={{ background:"#1B8FD4", border:"none", borderRadius:8, padding:"0 12px", cursor:"pointer", color:"#fff", display:"flex", alignItems:"center", alignSelf:"flex-start", height:40 }}><Ico n="plus" s={14}/></button>
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            {!(client.notes||[]).length && <div style={{ fontSize:12, color:"#b8a888", fontStyle:"italic" }}>Sin notas todavía.</div>}
+            {(client.notes||[]).map(n=>(
+              <div key={n.id} style={{ background:"#F5F0E8", borderRadius:8, padding:"10px 12px", display:"flex", gap:6, alignItems:"flex-start" }}>
+                <p style={{ fontSize:12, color:"#5a5a4a", lineHeight:1.5, whiteSpace:"pre-wrap", flex:1 }}>{n.text}</p>
+                <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:6, flexShrink:0 }}>
+                  <span style={{ fontSize:10, color:"#b8a888", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em" }}>{new Date(n.createdAt).toLocaleDateString("es-ES",{day:"numeric",month:"short"})}</span>
+                  <GhostBtn onClick={()=>deleteNote(n.id)}><Ico n="trash" s={11}/></GhostBtn>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── CLIENTS TAB ──────────────────────────────────────────────────────────────
+function ClientsTab({ data, persist }) {
+  const [view, setView] = useState("list");
+  const [calYear, setCalYear] = useState(new Date().getFullYear());
+  const [calMonth, setCalMonth] = useState(new Date().getMonth());
+  const [selectedDay, setSelectedDay] = useState(null);
+  const [modal, setModal] = useState(false);
+  const [form, setForm] = useState({ name:"", dates:[""], amount:"", paymentStatus:"pending", pack:"", duration:"", format:"", activities:[], packCustom:"", activitiesCustom:"" });
+  const setF = (k,v) => setForm(f=>({...f,[k]:v}));
+  const clients = data.clients || [];
+  const td = todayStr();
+
+  const addClient = () => {
+    if (!form.name.trim()) return;
+    const packLabel    = form.packCustom?.trim() || form.pack || "";
+    const durationLabel = form.duration || "";
+    const formatLabel  = form.format || "";
+    const actList      = [...(form.activities||[]), ...(form.activitiesCustom?.trim() ? [form.activitiesCustom.trim()] : [])];
+    const serviceParts = [packLabel, durationLabel, formatLabel].filter(Boolean);
+    const service = serviceParts.join(" · ") + (actList.length ? " · " + actList.join(", ") : "");
+    persist(d=>({ ...d, clients:[...(d.clients||[]),{ id:genId(), name:form.name.trim(), dates:form.dates.filter(d=>d).sort(), amount:form.amount, paymentStatus:form.paymentStatus, service, pack:packLabel, duration:durationLabel, format:formatLabel, activities:actList, tasks:[], notes:[], createdAt:Date.now() }] }));
+    setModal(false); setForm({ name:"", dates:[""], amount:"", paymentStatus:"pending", pack:"", duration:"", format:"", activities:[], packCustom:"", activitiesCustom:"" });
+  };
+  const deleteClient = id => persist(d=>({ ...d, clients:(d.clients||[]).filter(c=>c.id!==id) }));
+  const updateClient = updated => persist(d=>({ ...d, clients:(d.clients||[]).map(c=>c.id===updated.id?updated:c) }));
+
+  // Calendar
+  const firstOfMonth=new Date(calYear,calMonth,1), startDow=(firstOfMonth.getDay()+6)%7, daysInMonth=new Date(calYear,calMonth+1,0).getDate();
+  const cells=[]; for(let i=0;i<startDow;i++) cells.push(null); for(let d=1;d<=daysInMonth;d++) cells.push(`${calYear}-${String(calMonth+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`); while(cells.length%7!==0) cells.push(null);
+  const clientsOnDay = (ds) => clients.filter(c=>(c.dates||[]).includes(ds));
+  const prevMonth=()=>calMonth===0?(setCalMonth(11),setCalYear(y=>y-1)):setCalMonth(m=>m-1);
+  const nextMonth=()=>calMonth===11?(setCalMonth(0),setCalYear(y=>y+1)):setCalMonth(m=>m+1);
+
+  const detailClient = typeof view==="string"&&view!=="list"&&view!=="cal" ? clients.find(c=>c.id===view) : null;
+  if (detailClient) return <ClientDetail client={detailClient} onBack={()=>setView("list")} onUpdate={updateClient}/>;
+
+  const totalRevenue = clients.reduce((acc,c)=>acc+(parseFloat(c.amount)||0),0);
+
+  return (
+    <div className="fade">
+      {/* Header */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+        <div>
+          <h2 style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:26, color:"#091929", letterSpacing:"0.04em" }}>Clientes</h2>
+          <div style={{ fontSize:12, color:"#8a7a5a", textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700, marginTop:4 }}>{clients.length} cliente{clients.length!==1?"s":""}</div>
+        </div>
+        <BtnPrimary onClick={()=>setModal(true)} style={{ padding:"11px 24px", fontSize:13 }}><Ico n="plus" s={15}/>Nuevo cliente</BtnPrimary>
+      </div>
+
+      {/* Stats — siempre visibles */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:20 }}>
+        {[
+          { label:"Total clientes", value:clients.length||"0",           color:"#091929" },
+          { label:"Cobrados",       value:clients.filter(c=>c.paymentStatus==="paid").length||"0", color:"#2a7a3a" },
+          { label:"Pendientes",     value:clients.filter(c=>c.paymentStatus==="pending"||c.paymentStatus==="partial").length||"0", color:"#C8960A" },
+          { label:"Facturado",      value:totalRevenue?`${totalRevenue.toLocaleString("es-ES")} €`:"0 €", color:"#0A3F6A" },
+        ].map(s=>(
+          <div key={s.label} style={{ background:"#fff", border:"1px solid #E8DFD0", borderTop:`3px solid ${s.color}`, borderRadius:12, padding:"20px 22px" }}>
+            <div style={{ fontSize:11, color:"#8a7a5a", textTransform:"uppercase", letterSpacing:"0.08em", fontWeight:700, marginBottom:10 }}>{s.label}</div>
+            <div style={{ fontSize:32, color:s.color, fontFamily:"'Bebas Neue',sans-serif", letterSpacing:"0.04em" }}>{s.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* View toggle */}
+      <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+        {["list","cal"].map(v=>(
+          <button key={v} onClick={()=>setView(v)}
+            style={{ padding:"9px 28px", borderRadius:8, border:"1.5px solid #E0D5C4", background:v===view?"#0A3F6A":"transparent", color:v===view?"#F5F0E8":"#8a7a5a", fontSize:12, fontFamily:"'DM Sans',sans-serif", fontWeight:700, cursor:"pointer", textTransform:"uppercase", letterSpacing:"0.07em", transition:"all .15s" }}>
+            {v==="list"?"Lista":"Calendario"}
+          </button>
+        ))}
+      </div>
+
+      {/* LIST */}
+      {view==="list" && (
+        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+          {!clients.length && (
+            <div style={{ background:"#fff", border:"2px dashed #E0D5C4", borderRadius:16, padding:"60px 24px", textAlign:"center" }}>
+              <div style={{ fontSize:48, marginBottom:16 }}>🎾</div>
+              <div style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:22, color:"#8a7a5a", letterSpacing:"0.04em", marginBottom:8 }}>Sin clientes todavía</div>
+              <div style={{ fontSize:14, color:"#b8a888" }}>Pulsa "Nuevo cliente" para añadir el primero</div>
+            </div>
+          )}
+          {clients.map(client=>{
+            const ps=PAYMENT_STATUS.find(p=>p.id===client.paymentStatus)||PAYMENT_STATUS[0];
+            const upcoming=(client.dates||[]).filter(d=>d>=td).sort();
+            const pendingTasks=(client.tasks||[]).filter(t=>!t.done).length;
+            const doneBookings=Object.values(client.bookings||{}).filter(b=>b.done).length;
+            return (
+              <div key={client.id} className="clientrow"
+                style={{ background:"#fff", border:"1px solid #E8DFD0", borderLeft:`5px solid ${ps.color}`, borderRadius:12, padding:"20px 22px", display:"flex", alignItems:"center", gap:18, cursor:"pointer", transition:"all .15s" }}
+                onClick={()=>setView(client.id)}>
+                {/* Avatar */}
+                <div style={{ width:52, height:52, borderRadius:14, background:`linear-gradient(135deg,#0A3F6A,#1B8FD4)`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, color:"#fff", fontFamily:"'Bebas Neue',sans-serif", fontSize:24, letterSpacing:"0.04em" }}>
+                  {client.name.charAt(0).toUpperCase()}
+                </div>
+                {/* Info */}
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:17, color:"#1A1A1A", fontWeight:700, marginBottom:5 }}>{client.name}</div>
+                  <div style={{ fontSize:13, color:"#8a7a5a", marginBottom:8 }}>
+                    {upcoming.length ? `📅 Próxima: ${fmtDate(upcoming[0])}` : (client.dates||[]).length ? `📅 Última: ${fmtDate([...(client.dates||[])].sort().pop())}` : "Sin fechas"}
+                    {client.service && <span style={{ marginLeft:12, color:"#1B8FD4" }}>· {client.service}</span>}
+                  </div>
+                  <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                    {pendingTasks>0 && <span style={{ fontSize:11, background:"#EEF5FF", color:"#1B8FD4", fontWeight:700, padding:"4px 12px", borderRadius:20 }}>{pendingTasks} tarea{pendingTasks!==1?"s":""} pendiente{pendingTasks!==1?"s":""}</span>}
+                    <span style={{ fontSize:11, background:"#F5F0E8", color:"#8a7a5a", fontWeight:700, padding:"4px 12px", borderRadius:20 }}>🏨 {doneBookings}/4 reservas</span>
+                  </div>
+                </div>
+                {/* Right */}
+                <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:10, flexShrink:0 }}>
+                  {client.amount && <div style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:26, color:"#0A3F6A", letterSpacing:"0.04em" }}>{client.amount} €</div>}
+                  <span style={{ display:"inline-flex", alignItems:"center", gap:6, fontSize:12, color:ps.color, fontWeight:700, background:ps.color+"18", padding:"5px 14px", borderRadius:20, border:`1px solid ${ps.color}33` }}>
+                    <div style={{ width:7, height:7, borderRadius:"50%", background:ps.color }}/>{ps.label}
+                  </span>
+                  <div className="clientrow-actions" style={{ opacity:0, transition:"opacity .15s" }}>
+                    <GhostBtn onClick={e=>{e.stopPropagation();deleteClient(client.id);}}><Ico n="trash" s={14}/></GhostBtn>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* CALENDAR */}
+      {view==="cal" && (
+        <div>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:20, marginBottom:14 }}>
+            <button onClick={prevMonth} style={{ background:"#F5F0E8", border:"1px solid #E0D5C4", cursor:"pointer", color:"#0A3F6A", padding:"6px 10px", borderRadius:8, display:"flex" }}><Ico n="chevL" s={16}/></button>
+            <span style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:18, color:"#091929", letterSpacing:"0.04em", minWidth:220, textAlign:"center" }}>{MONTHS[calMonth]} {calYear}</span>
+            <button onClick={nextMonth} style={{ background:"#F5F0E8", border:"1px solid #E0D5C4", cursor:"pointer", color:"#0A3F6A", padding:"6px 10px", borderRadius:8, display:"flex" }}><Ico n="chevR" s={16}/></button>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:3, marginBottom:4 }}>
+            {DAYS_SHORT.map(d=><div key={d} style={{ textAlign:"center", fontSize:10, color:"#8a7a5a", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em", padding:"5px 0" }}>{d}</div>)}
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:3, marginBottom:16 }}>
+            {cells.map((ds,i)=>{
+              if(!ds) return <div key={`e${i}`}/>;
+              const dc=clientsOnDay(ds), isToday=ds===td, isSel=ds===selectedDay;
+              return (
+                <div key={ds} onClick={()=>setSelectedDay(isSel?null:ds)}
+                  style={{ background:isSel?"#EEF5FF":"#fff", borderRadius:8, padding:"7px 4px 6px", minHeight:58, display:"flex", flexDirection:"column", alignItems:"center", gap:3, border:`1.5px solid ${isSel?"#1B8FD4":isToday?"#C8960A":"#E8DFD0"}`, cursor:"pointer", transition:"all .1s" }}>
+                  <span style={{ fontSize:12, color:isToday?"#C8960A":isSel?"#1B8FD4":"#5a5a4a", fontWeight:isToday||isSel?700:500 }}>{parseInt(ds.split("-")[2])}</span>
+                  {dc.length>0&&(
+                    <div style={{ display:"flex", flexDirection:"column", gap:2, width:"100%", padding:"0 2px" }}>
+                      {dc.slice(0,2).map(c=>{
+                        const ps=PAYMENT_STATUS.find(p=>p.id===c.paymentStatus)||PAYMENT_STATUS[0];
+                        return <div key={c.id} style={{ background:ps.color+"22", borderRadius:3, padding:"1px 4px", fontSize:8, color:ps.color, fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.name}</div>;
+                      })}
+                      {dc.length>2&&<div style={{ fontSize:8, color:"#b8a888", textAlign:"center" }}>+{dc.length-2}</div>}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {selectedDay && (
+            <div className="fade" style={{ background:"#fff", border:"1px solid #E8DFD0", borderRadius:14, padding:14 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+                <h3 style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:18, color:"#091929", letterSpacing:"0.04em" }}>
+                  {new Date(selectedDay+"T00:00:00").toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long"})}
+                </h3>
+                <GhostBtn onClick={()=>setSelectedDay(null)}><Ico n="x" s={15}/></GhostBtn>
+              </div>
+              {!clientsOnDay(selectedDay).length
+                ? <div style={{ fontSize:13, color:"#b8a888", fontStyle:"italic" }}>Sin clientes este día.</div>
+                : clientsOnDay(selectedDay).map(c=>{
+                    const ps=PAYMENT_STATUS.find(p=>p.id===c.paymentStatus)||PAYMENT_STATUS[0];
+                    return (
+                      <div key={c.id} style={{ background:"#F5F0E8", borderRadius:9, padding:"10px 14px", marginBottom:8, display:"flex", justifyContent:"space-between", alignItems:"center", cursor:"pointer", borderLeft:`3px solid ${ps.color}` }} onClick={()=>setView(c.id)}>
+                        <div><div style={{ fontSize:13, color:"#1A1A1A", fontWeight:600 }}>{c.name}</div>{c.service&&<div style={{ fontSize:11, color:"#8a7a5a", marginTop:2 }}>{c.service}</div>}</div>
+                        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                          {c.amount&&<span style={{ fontSize:13, color:"#0A3F6A", fontFamily:"'Bebas Neue',sans-serif" }}>{c.amount} €</span>}
+                          <span style={{ fontSize:10, color:ps.color, fontWeight:700, textTransform:"uppercase" }}>{ps.label}</span>
+                          <Ico n="chevR" s={13}/>
+                        </div>
+                      </div>
+                    );
+                  })
+              }
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* NUEVO CLIENTE — pantalla completa */}
+      {modal && (
+        <div style={{ position:"fixed", inset:0, zIndex:200, background:"#F5F0E8", display:"flex", flexDirection:"column" }}>
+
+          {/* Header fijo */}
+          <div style={{ background:"#091929", padding:"10px 16px", display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0, borderBottom:"2px solid #C8960A" }}>
+            <span style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:20, color:"#fff", letterSpacing:"0.06em" }}>Nuevo cliente</span>
+            <button onClick={()=>setModal(false)} style={{ background:"rgba(255,255,255,.15)", border:"none", color:"#fff", borderRadius:8, padding:"6px 16px", cursor:"pointer", fontFamily:"'DM Sans',sans-serif", fontWeight:700, fontSize:12 }}>✕ Cancelar</button>
+          </div>
+
+          {/* Cuerpo — scroll libre, ocupa todo */}
+          <div style={{ flex:1, overflowY:"auto", padding:"20px 20px 8px" }}>
+
+            <div style={{ marginBottom:14 }}>
+              <label style={{ display:"block", fontSize:11, fontWeight:700, color:"#8a7a5a", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:6 }}>Nombre del cliente</label>
+              <input style={inputSt} value={form.name} onChange={e=>setF("name",e.target.value)} placeholder="ej. García, familia Martínez…" autoFocus/>
+            </div>
+
+            <div style={{ marginBottom:14 }}>
+              <label style={{ display:"block", fontSize:11, fontWeight:700, color:"#8a7a5a", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:6 }}>Pack</label>
+              <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+                {PACKS.map(p=>(
+                  <button key={p} onClick={()=>setF("pack", form.pack===p?"":p)}
+                    style={{ flex:1, padding:"10px 0", borderRadius:8, border:`2px solid ${form.pack===p?"#0A3F6A":"#E0D5C4"}`, background:form.pack===p?"#0A3F6A":"#fff", color:form.pack===p?"#fff":"#8a7a5a", fontSize:13, fontFamily:"'DM Sans',sans-serif", fontWeight:700, cursor:"pointer" }}>
+                    {p}
+                  </button>
+                ))}
+              </div>
+              <input style={inputSt} value={form.packCustom||""} onChange={e=>setF("packCustom",e.target.value)} placeholder="O escribe un pack distinto…"/>
+            </div>
+
+            <div style={{ marginBottom:14 }}>
+              <label style={{ display:"block", fontSize:11, fontWeight:700, color:"#8a7a5a", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:6 }}>Duración</label>
+              <div style={{ display:"flex", gap:8 }}>
+                {DURATIONS.map(d=>(
+                  <button key={d} onClick={()=>setF("duration", form.duration===d?"":d)}
+                    style={{ flex:1, padding:"10px 0", borderRadius:8, border:`2px solid ${form.duration===d?"#1B8FD4":"#E0D5C4"}`, background:form.duration===d?"#1B8FD4":"#fff", color:form.duration===d?"#fff":"#8a7a5a", fontSize:13, fontFamily:"'DM Sans',sans-serif", fontWeight:700, cursor:"pointer" }}>
+                    {d}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ marginBottom:14 }}>
+              <label style={{ display:"block", fontSize:11, fontWeight:700, color:"#8a7a5a", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:6 }}>Formato</label>
+              <div style={{ display:"flex", gap:8 }}>
+                {FORMATS.map(f=>(
+                  <button key={f} onClick={()=>setF("format", form.format===f?"":f)}
+                    style={{ flex:1, padding:"10px 0", borderRadius:8, border:`2px solid ${form.format===f?"#C8960A":"#E0D5C4"}`, background:form.format===f?"#C8960A":"#fff", color:form.format===f?"#091929":"#8a7a5a", fontSize:13, fontFamily:"'DM Sans',sans-serif", fontWeight:700, cursor:"pointer" }}>
+                    {f}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ marginBottom:14 }}>
+              <label style={{ display:"block", fontSize:11, fontWeight:700, color:"#8a7a5a", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:6 }}>Actividades incluidas</label>
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:8 }}>
+                {ACTIVITIES.map(a=>{
+                  const sel=(form.activities||[]).includes(a);
+                  return (
+                    <button key={a} onClick={()=>{ const cur=form.activities||[]; setF("activities", sel?cur.filter(x=>x!==a):[...cur,a]); }}
+                      style={{ padding:"9px 14px", borderRadius:8, border:`2px solid ${sel?"#0A3F6A":"#E0D5C4"}`, background:sel?"#EEF5FF":"#fff", color:sel?"#0A3F6A":"#8a7a5a", fontSize:13, fontFamily:"'DM Sans',sans-serif", fontWeight:700, cursor:"pointer" }}>
+                      {sel?"✓ ":""}{a}
+                    </button>
+                  );
+                })}
+              </div>
+              <input style={inputSt} value={form.activitiesCustom||""} onChange={e=>setF("activitiesCustom",e.target.value)} placeholder="O añade una actividad distinta…"/>
+            </div>
+
+            <div style={{ marginBottom:14 }}>
+              <label style={{ display:"block", fontSize:11, fontWeight:700, color:"#8a7a5a", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:6 }}>
+                Días de visita ({form.dates.filter(d=>d).length})
+              </label>
+              {form.dates.map((d,i)=>(
+                <div key={i} style={{ display:"flex", gap:8, marginBottom:8 }}>
+                  <input type="date" style={{ ...inputSt, flex:1 }} value={d} onChange={e=>{const nd=[...form.dates];nd[i]=e.target.value;setF("dates",nd);}}/>
+                  {form.dates.length>1&&<button onClick={()=>setF("dates",form.dates.filter((_,j)=>j!==i))} style={{ background:"transparent", border:"none", cursor:"pointer", color:"#b8a888", fontSize:20, lineHeight:1 }}>✕</button>}
+                </div>
+              ))}
+              <button onClick={()=>setF("dates",[...form.dates,""])}
+                style={{ display:"flex", alignItems:"center", gap:6, background:"transparent", border:"1px dashed #C8B898", color:"#8a7a5a", borderRadius:8, padding:"8px 14px", cursor:"pointer", fontSize:12, fontFamily:"'DM Sans',sans-serif" }}>
+                <Ico n="plus" s={13}/>Añadir otro día
+              </button>
+            </div>
+
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:14 }}>
+              <div>
+                <label style={{ display:"block", fontSize:11, fontWeight:700, color:"#8a7a5a", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:6 }}>Importe (€)</label>
+                <input type="number" style={inputSt} value={form.amount} onChange={e=>setF("amount",e.target.value)} placeholder="0.00"/>
+              </div>
+              <div>
+                <label style={{ display:"block", fontSize:11, fontWeight:700, color:"#8a7a5a", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:6 }}>Estado de pago</label>
+                <select style={{ ...inputSt, appearance:"none" }} value={form.paymentStatus} onChange={e=>setF("paymentStatus",e.target.value)}>
+                  {PAYMENT_STATUS.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}
+                </select>
+              </div>
+            </div>
+
+          </div>
+
+          {/* Botón guardar fijo abajo */}
+          <div style={{ flexShrink:0, padding:"12px 16px", borderTop:"2px solid #E0D5C4", background:"#F5F0E8" }}>
+            <button onClick={addClient}
+              style={{ width:"100%", padding:"14px 0", background:"#0A3F6A", color:"#fff", border:"none", borderRadius:10, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", fontWeight:700, fontSize:15 }}>
+              Guardar cliente
+            </button>
+          </div>
+
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────
+export default function App() {
+  const [tab, setTab] = useState("week");
+  const [data, setData] = useState(null);
+  const [calYear, setCalYear] = useState(new Date().getFullYear());
+  const [calMonth, setCalMonth] = useState(new Date().getMonth());
+  const [selectedDay, setSelectedDay] = useState(null);
+  const [modal, setModal] = useState(null);
+  const [form, setForm] = useState({});
+
+  useEffect(() => {
+    loadData().then(d => {
+      const cw = getCurrentWeekKey();
+      const updated = { ...d, weekTasks:{ ...(d.weekTasks||{}) } };
+      Object.keys(updated.weekTasks).forEach(wk => {
+        if (wk < cw) {
+          const pending = updated.weekTasks[wk].filter(t=>!t.done);
+          if (pending.length) { updated.weekTasks[cw]=[...(updated.weekTasks[cw]||[]),...pending.map(t=>({...t,rolledFrom:wk}))]; updated.weekTasks[wk]=updated.weekTasks[wk].filter(t=>t.done); }
+        }
+      });
+      setData(updated); saveData(updated);
+    });
+  }, []);
+
+  const persist = useCallback((updater) => { setData(prev => { const next=updater(prev); saveData(next); return next; }); }, []);
+  const openModal = (type, extras={}) => { setForm({ eventType:"meeting", ...extras }); setModal(type); };
+  const closeModal = () => { setModal(null); setForm({}); };
+  const setF = (k,v) => setForm(f=>({...f,[k]:v}));
+
+  if (!data) return (
+    <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", background:"#091929", flexDirection:"column", gap:24 }}>
+      <BPELogo variant="dark"/>
+      <div style={{ width:24, height:24, border:"2px solid rgba(200,150,10,.3)", borderTopColor:"#C8960A", borderRadius:"50%", animation:"spin 0.7s linear infinite" }}/>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
+
+  const cw = getCurrentWeekKey(), td = todayStr();
+  const weekTasks = data.weekTasks[cw]||[], futureTasks = data.futureTasks||[];
+
+  // ── Actions ──────────────────────────────────────────────────────────────────
+  const EXPENSE_CATS = ["Comida/Bebida","Transporte","Alojamiento","Material","Marketing","Otros"];
+  const addExpense=()=>{ const desc=form.expDesc?.trim(); if(!desc||!form.expAmount) return; persist(d=>({...d,expenses:[...(d.expenses||[]),{id:genId(),desc,amount:parseFloat(form.expAmount),cat:form.expCat||"Otros",who:form.expWho||"Yo",date:form.expDate||td,exported:false,createdAt:Date.now()}]})); closeModal(); };
+  const deleteExpense=id=>persist(d=>({...d,expenses:(d.expenses||[]).filter(e=>e.id!==id)}));
+  const toggleExported=id=>persist(d=>({...d,expenses:(d.expenses||[]).map(e=>e.id===id?{...e,exported:!e.exported}:e)}));
+
+  const expenses = data.expenses||[];
+  const totalExpenses = expenses.reduce((s,e)=>s+e.amount,0);
+  const pendingExport = expenses.filter(e=>!e.exported);
+  const sortTasks = (tasks) => [...tasks].sort((a,b) => {
+    if (a.done !== b.done) return a.done ? 1 : -1;
+    if ((a.priority==="high") !== (b.priority==="high")) return a.priority==="high" ? -1 : 1;
+    if (a.deadline && b.deadline) return a.deadline.localeCompare(b.deadline);
+    if (a.deadline) return -1; if (b.deadline) return 1;
+    return 0;
+  });
+  const addWeekTask=()=>{ const text=form.text?.trim(); if(!text) return; persist(d=>({...d,weekTasks:{...d.weekTasks,[cw]:[...(d.weekTasks[cw]||[]),{id:genId(),text,deadline:form.deadline||null,priority:form.priority||"normal",done:false,createdAt:td}]}})); closeModal(); };
+  const addFutureTask=()=>{ const text=form.text?.trim(); if(!text) return; persist(d=>({...d,futureTasks:[...(d.futureTasks||[]),{id:genId(),text,deadline:form.deadline||null,priority:form.priority||"normal",createdAt:td}]})); closeModal(); };
+  const toggleTask=(wk,id)=>persist(d=>{ const tasks=(d.weekTasks[wk]||[]).map(t=>t.id===id?{...t,done:!t.done,doneAt:!t.done?td:null}:t); const task=tasks.find(t=>t.id===id); const hist=d.completedTasks||[]; return {...d,weekTasks:{...d.weekTasks,[wk]:tasks},completedTasks:task?.done?[{...task,week:wk},...hist.filter(c=>c.id!==id)]:hist.filter(c=>c.id!==id)}; });
+  const deleteWeekTask=(wk,id)=>persist(d=>({...d,weekTasks:{...d.weekTasks,[wk]:(d.weekTasks[wk]||[]).filter(t=>t.id!==id)}}));
+  const deleteFutureTask=id=>persist(d=>({...d,futureTasks:(d.futureTasks||[]).filter(t=>t.id!==id)}));
+  const promoteTask=id=>persist(d=>{ const task=(d.futureTasks||[]).find(t=>t.id===id); if(!task) return d; return {...d,futureTasks:d.futureTasks.filter(t=>t.id!==id),weekTasks:{...d.weekTasks,[cw]:[...(d.weekTasks[cw]||[]),{...task,done:false}]}}; });
+  const addEvent=()=>{ const title=form.title?.trim(); if(!title||!form.date) return; persist(d=>({...d,events:[...(d.events||[]),{id:genId(),title,date:form.date,type:form.eventType||"meeting",note:form.note||"",timeStart:form.timeStart||"",timeEnd:form.timeEnd||""}]})); closeModal(); };
+  const deleteEvent=id=>persist(d=>({...d,events:(d.events||[]).filter(e=>e.id!==id)}));
+  const addNote=()=>{ const text=form.text?.trim(); if(!text) return; persist(d=>({...d,notes:[...(d.notes||[]),{id:genId(),text,createdAt:Date.now()}]})); closeModal(); };
+  const deleteNote=id=>persist(d=>({...d,notes:(d.notes||[]).filter(n=>n.id!==id)}));
+  const addDoc=()=>{ const name=form.docName?.trim(),url=form.docUrl?.trim(); if(!name||!url) return; const fullUrl=url.startsWith("http")?url:"https://"+url; persist(d=>({...d,docs:[...(d.docs||[]),{id:genId(),name,url:fullUrl,category:form.docCat||"other",note:form.docNote||"",createdAt:Date.now()}]})); closeModal(); };
+  const deleteDoc=id=>persist(d=>({...d,docs:(d.docs||[]).filter(doc=>doc.id!==id)}));
+
+  // Calendar
+  const getDayItems=(ds)=>({ events:(data.events||[]).filter(e=>e.date===ds), tasks:Object.values(data.weekTasks||{}).flat().concat(data.futureTasks||[]).filter(t=>t.deadline===ds&&!t.done), done:(data.completedTasks||[]).filter(t=>t.doneAt===ds) });
+  const getDots=(ds)=>{ const {events,tasks,done}=getDayItems(ds); return [...events.map(e=>EVENT_TYPES.find(t=>t.id===e.type)?.color||"#1B8FD4"),...tasks.map(()=>"#C8960A"),...done.map(()=>"#2a7a3a")].slice(0,5); };
+  const firstOfMonth=new Date(calYear,calMonth,1),startDow=(firstOfMonth.getDay()+6)%7,daysInMonth=new Date(calYear,calMonth+1,0).getDate();
+  const cells=[]; for(let i=0;i<startDow;i++) cells.push(null); for(let d=1;d<=daysInMonth;d++) cells.push(`${calYear}-${String(calMonth+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`); while(cells.length%7!==0) cells.push(null);
+  const prevCal=()=>calMonth===0?(setCalMonth(11),setCalYear(y=>y-1)):setCalMonth(m=>m-1);
+  const nextCal=()=>calMonth===11?(setCalMonth(0),setCalYear(y=>y+1)):setCalMonth(m=>m+1);
+  const selItems=selectedDay?getDayItems(selectedDay):null;
+
+  const TABS=[
+    {id:"week",    label:"Esta semana",ico:"list"},
+    {id:"future",  label:"Futuro",     ico:"clock"},
+    {id:"cal",     label:"Calendario", ico:"cal"},
+    {id:"clients", label:"Clientes",   ico:"user"},
+    {id:"expenses",label:"Gastos",     ico:"euro"},
+    {id:"notes",   label:"Notas",      ico:"note"},
+    {id:"docs",    label:"Docs",       ico:"folder"},
+    {id:"hist",    label:"Historial",  ico:"hist"},
+  ];
+
+  return (
+    <div style={{ minHeight:"100vh", background:"#F5F0E8", fontFamily:"'DM Sans',sans-serif", color:"#1A1A1A" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600;700&family=Fraunces:ital,opsz,wght@1,9..144,300&display=swap');
+        *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        @keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes modalIn{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:scale(1)}}
+        .fade{animation:fadeUp .2s ease forwards}
+        ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:#C8B898;border-radius:2px}
+        input,textarea,select{font-family:'DM Sans',sans-serif;color:#1A1A1A;}
+        input::placeholder,textarea::placeholder{color:#b8a888}
+        .taskrow:hover{background:#F5F0E8!important;box-shadow:0 1px 4px rgba(10,63,106,.06)}
+        .taskrow:hover .taskrow-actions{opacity:1!important}
+        .clientrow:hover{background:#F5F0E8!important;box-shadow:0 2px 8px rgba(10,63,106,.08)}
+        .clientrow:hover .clientrow-actions{opacity:1!important}
+        .ghost-btn:hover{color:#0A3F6A!important}
+        .btn-primary:hover{background:#091929!important}
+        input[type=date]::-webkit-calendar-picker-indicator{filter:opacity(.4)}
+        select option{background:#fff;color:#1A1A1A;}
+        .tab-btn{display:flex;align-items:center;gap:6px;padding:9px 12px;background:transparent;border:none;border-bottom:2px solid transparent;color:#b8a888;cursor:pointer;font-size:11px;font-family:'DM Sans',sans-serif;font-weight:700;letter-spacing:.06em;text-transform:uppercase;transition:all .15s;white-space:nowrap}
+        .tab-btn:hover{color:#0A3F6A}
+        .tab-btn.active{color:#0A3F6A;border-bottom-color:#C8960A}
+      `}</style>
+
+      {/* ── HEADER ── */}
+      <header style={{ background:"#091929", position:"sticky", top:0, zIndex:100 }}>
+        <div style={{ padding:"8px 16px 6px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <BPELogo variant="dark"/>
+          <div style={{ textAlign:"right" }}>
+            <div style={{ fontSize:11, color:"rgba(255,255,255,.4)", fontWeight:500, textTransform:"capitalize" }}>
+              {new Date().toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long"})}
+            </div>
+            <div style={{ fontSize:10, color:"#C8960A", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.1em", marginTop:2 }}>
+              {getWeekLabel(cw)}
+            </div>
+          </div>
+        </div>
+        <div style={{ height:"1.5px", background:"linear-gradient(90deg, transparent, #C8960A 20%, #C8960A 80%, transparent)", opacity:0.4 }}/>
+        <nav style={{ padding:"0 8px", display:"flex", gap:1, overflowX:"auto", background:"#091929" }}>
+          {TABS.map(t=>(
+            <button key={t.id} className={`tab-btn${tab===t.id?" active":""}`} onClick={()=>setTab(t.id)}
+              style={{ color: tab===t.id?"#F5F0E8":"rgba(255,255,255,.35)", borderBottomColor: tab===t.id?"#C8960A":"transparent" }}>
+              <Ico n={t.ico} s={12}/>{t.label}
+            </button>
+          ))}
+        </nav>
+      </header>
+
+      <main style={{ padding:"12px 12px 40px" }}>
+
+        {/* ══ CLIENTES ══ */}
+        {tab==="clients" && <ClientsTab data={data} persist={persist}/>}
+
+        {/* ══ ESTA SEMANA ══ */}
+        {tab==="week" && (
+          <div className="fade">
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
+              <div>
+                <h2 style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:18, color:"#091929", letterSpacing:"0.04em" }}>Esta semana</h2>
+                <div style={{ fontSize:11, color:"#8a7a5a", textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700, marginTop:4 }}>{getWeekLabel(cw)}</div>
+              </div>
+              <BtnPrimary onClick={()=>openModal("task-week")}><Ico n="plus" s={14}/>Nueva tarea</BtnPrimary>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:8 }}>
+              {!weekTasks.length&&<div style={{ gridColumn:"1/-1" }}><Empty text="Sin tareas esta semana. Añade la primera."/></div>}
+              {sortTasks(weekTasks).map(t=><TaskRow key={t.id} task={t} onToggle={()=>toggleTask(cw,t.id)} onDelete={()=>deleteWeekTask(cw,t.id)}/>)}
+            </div>
+            {weekTasks.filter(t=>t.done).length>0&&<div style={{ marginTop:14, fontSize:12, color:"#2a7a3a", fontWeight:700, letterSpacing:"0.04em" }}>✓ {weekTasks.filter(t=>t.done).length} completada{weekTasks.filter(t=>t.done).length!==1?"s":""} esta semana</div>}
+          </div>
+        )}
+
+        {/* ══ FUTURO ══ */}
+        {tab==="future" && (
+          <div className="fade">
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
+              <div><h2 style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:18, color:"#091929", letterSpacing:"0.04em" }}>Pendientes a futuro</h2>
+              <div style={{ fontSize:11, color:"#8a7a5a", textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700, marginTop:4 }}>{futureTasks.length} tarea{futureTasks.length!==1?"s":""}</div></div>
+              <BtnPrimary onClick={()=>openModal("task-future")}><Ico n="plus" s={14}/>Añadir</BtnPrimary>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:8 }}>
+              {!futureTasks.length&&<div style={{ gridColumn:"1/-1" }}><Empty text="Sin tareas a futuro."/></div>}
+              {sortTasks(futureTasks).map(t=><TaskRow key={t.id} task={t} onToggle={()=>{}} onDelete={()=>deleteFutureTask(t.id)} onPromote={()=>promoteTask(t.id)}/>)}
+            </div>
+          </div>
+        )}
+
+        {/* ══ CALENDARIO ══ */}
+        {tab==="cal" && (
+          <div className="fade">
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+              <div><h2 style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:18, color:"#091929", letterSpacing:"0.04em" }}>Calendario</h2>
+              <div style={{ fontSize:11, color:"#8a7a5a", textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700, marginTop:4 }}>Eventos y fechas clave</div></div>
+              <BtnPrimary onClick={()=>openModal("event",{date:selectedDay||td})}><Ico n="plus" s={14}/>Nuevo evento</BtnPrimary>
+            </div>
+            {/* Legend */}
+            <div style={{ display:"flex", gap:8, marginBottom:18, flexWrap:"wrap" }}>
+              {[...EVENT_TYPES,{id:"t",label:"Deadline tarea",color:"#C8960A"},{id:"d",label:"Completada",color:"#2a7a3a"}].map(et=>(
+                <div key={et.id} style={{ display:"flex", alignItems:"center", gap:5, fontSize:10, color:"#8a7a5a", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}><div style={{ width:7, height:7, borderRadius:"50%", background:et.color }}/>{et.label}</div>
+              ))}
+            </div>
+            {/* Two-column: calendar left, day detail right */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 300px", gap:16, alignItems:"start" }}>
+              {/* Left: month grid */}
+              <div>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:20, marginBottom:14 }}>
+                  <button onClick={prevCal} style={{ background:"#fff", border:"1px solid #E0D5C4", cursor:"pointer", color:"#0A3F6A", padding:"6px 10px", borderRadius:8, display:"flex" }}><Ico n="chevL" s={16}/></button>
+                  <span style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:18, color:"#091929", letterSpacing:"0.04em", minWidth:230, textAlign:"center" }}>{MONTHS[calMonth]} {calYear}</span>
+                  <button onClick={nextCal} style={{ background:"#fff", border:"1px solid #E0D5C4", cursor:"pointer", color:"#0A3F6A", padding:"6px 10px", borderRadius:8, display:"flex" }}><Ico n="chevR" s={16}/></button>
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:3, marginBottom:4 }}>
+                  {DAYS_SHORT.map(d=><div key={d} style={{ textAlign:"center", fontSize:10, color:"#8a7a5a", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em", padding:"5px 0" }}>{d}</div>)}
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:4 }}>
+                  {cells.map((ds,i)=>{
+                    if(!ds) return <div key={`e${i}`}/>;
+                    const dots=getDots(ds),isToday=ds===td,isSel=ds===selectedDay;
+                    return (
+                      <div key={ds} onClick={()=>setSelectedDay(isSel?null:ds)}
+                        style={{ background:isSel?"#EEF5FF":"#fff", borderRadius:8, padding:"6px 3px 5px", minHeight:64, display:"flex", flexDirection:"column", alignItems:"center", gap:4, border:`1.5px solid ${isSel?"#1B8FD4":isToday?"#C8960A":"#E8DFD0"}`, cursor:"pointer", transition:"all .1s" }}>
+                        <span style={{ fontSize:13, color:isToday?"#C8960A":isSel?"#0A3F6A":"#5a5a4a", fontWeight:isToday||isSel?700:400 }}>{parseInt(ds.split("-")[2])}</span>
+                        {dots.length>0&&<div style={{ display:"flex", gap:2, flexWrap:"wrap", justifyContent:"center" }}>{dots.map((c,di)=><div key={di} style={{ width:6, height:6, borderRadius:"50%", background:c }}/>)}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              {/* Right: day detail panel (sticky) */}
+              <div style={{ position:"sticky", top:120 }}>
+                {!selectedDay ? (
+                  <div style={{ background:"#fff", border:"1px solid #E8DFD0", borderRadius:14, padding:24, textAlign:"center" }}>
+                    <div style={{ fontSize:18, marginBottom:10 }}>📅</div>
+                    <div style={{ fontSize:13, color:"#b8a888", fontStyle:"italic" }}>Selecciona un día en el calendario para ver o añadir eventos</div>
+                  </div>
+                ) : (
+                  <div className="fade" style={{ background:"#fff", border:"1px solid #E8DFD0", borderRadius:14, padding:14 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+                      <h3 style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:16, color:"#091929", letterSpacing:"0.04em" }}>{new Date(selectedDay+"T00:00:00").toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long"})}</h3>
+                      <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                        <BtnPrimary onClick={()=>openModal("event",{date:selectedDay})} style={{ fontSize:11, padding:"5px 10px" }}><Ico n="plus" s={12}/>Añadir</BtnPrimary>
+                        <GhostBtn onClick={()=>setSelectedDay(null)}><Ico n="x" s={14}/></GhostBtn>
+                      </div>
+                    </div>
+                    {!selItems.events.length&&!selItems.tasks.length&&!selItems.done.length&&<div style={{ color:"#b8a888", fontSize:13, fontStyle:"italic", padding:"12px 0" }}>Sin eventos este día.</div>}
+                    {selItems.events.map(ev=>{const et=EVENT_TYPES.find(t=>t.id===ev.type);return(
+                      <div key={ev.id} style={{ background:"#F5F0E8", borderRadius:9, padding:"10px 14px", marginBottom:8, borderLeft:`3px solid ${et?.color||"#1B8FD4"}` }}>
+                        <div style={{ display:"flex", justifyContent:"space-between" }}>
+                          <div>
+                            <div style={{ fontSize:13, color:"#1A1A1A", fontWeight:600 }}>{ev.title}</div>
+                            {(ev.timeStart||ev.timeEnd) && (
+                              <div style={{ fontSize:11, color:"#1B8FD4", fontWeight:700, marginTop:3, display:"flex", alignItems:"center", gap:4 }}>
+                                <Ico n="clock" s={10}/>{ev.timeStart||"—"}{ev.timeEnd?` → ${ev.timeEnd}`:""}
+                              </div>
+                            )}
+                            {ev.note&&<div style={{ fontSize:11, color:"#8a7a5a", marginTop:3 }}>{ev.note}</div>}
+                          </div>
+                          <div style={{ display:"flex", gap:4, alignItems:"flex-start" }}>
+                            <span style={{ fontSize:9, color:et?.color, fontWeight:700, textTransform:"uppercase" }}>{et?.label}</span>
+                            <GhostBtn onClick={()=>deleteEvent(ev.id)}><Ico n="trash" s={12}/></GhostBtn>
+                          </div>
+                        </div>
+                      </div>
+                    );})}
+                    {selItems.tasks.map(t=><div key={t.id} style={{ background:"#FFF8EE", borderRadius:9, padding:"10px 14px", marginBottom:8, borderLeft:"3px solid #C8960A" }}><div style={{ fontSize:13, color:"#1A1A1A" }}>{t.text}</div><div style={{ fontSize:10, color:"#C8960A", fontWeight:700, textTransform:"uppercase", marginTop:3 }}>Deadline tarea</div></div>)}
+                    {selItems.done.map(t=><div key={t.id} style={{ background:"#F0FFF4", borderRadius:9, padding:"10px 14px", marginBottom:8, borderLeft:"3px solid #2a7a3a" }}><div style={{ fontSize:13, color:"#5a5a4a", textDecoration:"line-through" }}>{t.text}</div><div style={{ fontSize:10, color:"#2a7a3a", fontWeight:700, textTransform:"uppercase", marginTop:3 }}>Completada</div></div>)}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ══ NOTAS ══ */}
+        {tab==="notes" && (
+          <div className="fade">
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
+              <div><h2 style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:18, color:"#091929", letterSpacing:"0.04em" }}>Notas e ideas</h2>
+              <div style={{ fontSize:11, color:"#8a7a5a", textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700, marginTop:4 }}>{(data.notes||[]).length} nota{(data.notes||[]).length!==1?"s":""}</div></div>
+              <BtnPrimary onClick={()=>openModal("note")}><Ico n="plus" s={14}/>Nueva nota</BtnPrimary>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:6 }}>
+              {(data.notes||[]).map(note=>(
+                <div key={note.id} style={{ background:"#fff", border:"1px solid #E8DFD0", borderRadius:12, padding:16, borderTop:"3px solid #C8960A" }}>
+                  <p style={{ fontSize:13, color:"#3a3a2a", lineHeight:1.6, whiteSpace:"pre-wrap" }}>{note.text}</p>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:12 }}>
+                    <span style={{ fontSize:10, color:"#b8a888", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>{new Date(note.createdAt).toLocaleDateString("es-ES",{day:"numeric",month:"short"})}</span>
+                    <GhostBtn onClick={()=>deleteNote(note.id)}><Ico n="trash" s={12}/></GhostBtn>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ══ DOCS ══ */}
+        {tab==="docs" && (
+          <div className="fade">
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
+              <div><h2 style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:18, color:"#091929", letterSpacing:"0.04em" }}>Documentos</h2>
+              <div style={{ fontSize:11, color:"#8a7a5a", textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700, marginTop:4 }}>{(data.docs||[]).length} documento{(data.docs||[]).length!==1?"s":""}</div></div>
+              <BtnPrimary onClick={()=>openModal("doc")}><Ico n="plus" s={14}/>Añadir enlace</BtnPrimary>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:6 }}>
+              {!(data.notes||[]).length&&<div style={{ gridColumn:"1/-1" }}><Empty text="Sin notas. Apunta ideas, enlaces, lo que sea."/></div>}
+              {(data.docs||[]).map(doc=>{
+                const cat=DOC_CATEGORIES.find(c=>c.id===doc.category)||DOC_CATEGORIES[3];
+                return (
+                  <div key={doc.id} style={{ background:"#fff", border:"1px solid #E8DFD0", borderRadius:12, padding:16, display:"flex", flexDirection:"column", gap:6, borderTop:`3px solid ${cat.color}` }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
+                      <div style={{ display:"flex", gap:6, alignItems:"flex-start", flex:1, minWidth:0 }}>
+                        <div style={{ width:34, height:34, borderRadius:8, background:cat.color+"18", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, color:cat.color }}><Ico n="link" s={15}/></div>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:13, color:"#1A1A1A", fontWeight:600, wordBreak:"break-word" }}>{doc.name}</div>
+                          <div style={{ fontSize:10, color:cat.color, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em", marginTop:3 }}>{cat.label}</div>
+                        </div>
+                      </div>
+                      <GhostBtn onClick={()=>deleteDoc(doc.id)}><Ico n="trash" s={12}/></GhostBtn>
+                    </div>
+                    {doc.note&&<p style={{ fontSize:12, color:"#8a7a5a", lineHeight:1.5 }}>{doc.note}</p>}
+                    <a href={doc.url} target="_blank" rel="noopener noreferrer"
+                      style={{ display:"inline-flex", alignItems:"center", gap:6, fontSize:11, color:cat.color, fontWeight:700, textDecoration:"none", background:cat.color+"15", padding:"6px 12px", borderRadius:7, alignSelf:"flex-start", border:`1px solid ${cat.color}33` }}>
+                      <Ico n="extlink" s={11}/>Abrir documento
+                    </a>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ══ GASTOS ══ */}
+        {tab==="expenses" && (
+          <div className="fade">
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
+              <div>
+                <h2 style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:18, color:"#091929", letterSpacing:"0.04em" }}>Gastos de empresa</h2>
+                <div style={{ fontSize:11, color:"#8a7a5a", textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700, marginTop:3 }}>
+                  {pendingExport.length} sin exportar · Total {totalExpenses.toFixed(2)} €
+                </div>
+              </div>
+              <BtnPrimary onClick={()=>openModal("expense")}><Ico n="plus" s={14}/>Añadir gasto</BtnPrimary>
+            </div>
+
+            {/* Stats */}
+            {expenses.length>0 && (
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginBottom:12 }}>
+                {[
+                  {label:"Total gastado", value:`${totalExpenses.toFixed(2)} €`, color:"#0A3F6A"},
+                  {label:"Sin exportar",  value:`${pendingExport.reduce((s,e)=>s+e.amount,0).toFixed(2)} €`, color:"#C8960A"},
+                  {label:"Exportados",    value:`${expenses.filter(e=>e.exported).reduce((s,e)=>s+e.amount,0).toFixed(2)} €`, color:"#2a7a3a"},
+                ].map(s=>(
+                  <div key={s.label} style={{ background:"#fff", border:"1px solid #E8DFD0", borderRadius:10, padding:"10px 14px" }}>
+                    <div style={{ fontSize:10, color:"#8a7a5a", textTransform:"uppercase", letterSpacing:"0.08em", fontWeight:700, marginBottom:4 }}>{s.label}</div>
+                    <div style={{ fontSize:20, color:s.color, fontFamily:"'Bebas Neue',sans-serif", letterSpacing:"0.04em" }}>{s.value}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* List */}
+            <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+              {!expenses.length && <Empty text="Sin gastos todavía. Añade el primero."/>}
+              {[...expenses].sort((a,b)=>b.createdAt-a.createdAt).map(exp=>(
+                <div key={exp.id} className="taskrow" style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", background: exp.exported?"#f8f8f4":"#fff", borderRadius:10, border:"1px solid #E8DFD0", opacity: exp.exported?0.6:1 }}>
+                  {/* Exported toggle */}
+                  <button onClick={()=>toggleExported(exp.id)}
+                    style={{ width:22, height:22, borderRadius:"50%", border:`2px solid ${exp.exported?"#2a7a3a":"#C8B898"}`, background:exp.exported?"#2a7a3a":"transparent", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, color:"#fff", transition:"all .2s" }}
+                    title={exp.exported?"Marcar como no exportado":"Marcar como exportado a Excel"}>
+                    {exp.exported && <Ico n="check" s={11}/>}
+                  </button>
+                  {/* Info */}
+                  <div style={{ flex:1 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                      <span style={{ fontSize:14, color: exp.exported?"#b8a888":"#1A1A1A", textDecoration: exp.exported?"line-through":"none", fontWeight:500 }}>{exp.desc}</span>
+                      <span style={{ fontSize:10, background:"#F5F0E8", color:"#8a7a5a", fontWeight:700, padding:"1px 7px", borderRadius:4, textTransform:"uppercase", letterSpacing:"0.05em" }}>{exp.cat}</span>
+                    </div>
+                    <div style={{ display:"flex", gap:10, marginTop:3 }}>
+                      <span style={{ fontSize:11, color:"#8a7a5a" }}>{fmtDate(exp.date)}</span>
+                      <span style={{ fontSize:11, color:"#1B8FD4", fontWeight:600 }}>👤 {exp.who}</span>
+                      {exp.exported && <span style={{ fontSize:10, color:"#2a7a3a", fontWeight:700, textTransform:"uppercase" }}>✓ Exportado</span>}
+                    </div>
+                  </div>
+                  {/* Amount */}
+                  <div style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:20, color: exp.exported?"#b8a888":"#0A3F6A", letterSpacing:"0.04em", flexShrink:0 }}>
+                    {exp.amount.toFixed(2)} €
+                  </div>
+                  <div className="taskrow-actions" style={{ opacity:0, transition:"opacity .15s" }}>
+                    <GhostBtn onClick={()=>deleteExpense(exp.id)}><Ico n="trash" s={13}/></GhostBtn>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ══ HISTORIAL ══ */}
+        {tab==="hist" && (
+          <div className="fade">
+            <div style={{ marginBottom:12 }}><h2 style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:18, color:"#091929", letterSpacing:"0.04em" }}>Historial</h2></div>
+            <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+              {!(data.completedTasks||[]).length&&<Empty text="Aquí aparecerán todas las tareas completadas."/>}
+              {(data.completedTasks||[]).map(task=>(
+                <div key={task.id} style={{ display:"flex", alignItems:"flex-start", gap:6, padding:"8px 12px", background:"#fff", borderRadius:10, border:"1px solid #E8DFD0", opacity:0.65 }}>
+                  <div style={{ width:20, height:20, borderRadius:"50%", background:"#0A3F6A", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:2, color:"#F5F0E8" }}><Ico n="check" s={10}/></div>
+                  <div style={{ flex:1 }}>
+                    <span style={{ fontSize:14, color:"#b8a888", textDecoration:"line-through" }}>{task.text}</span>
+                    <div style={{ display:"flex", gap:6, marginTop:4, flexWrap:"wrap" }}>
+                      <span style={{ fontSize:10, background:"#F5F0E8", color:"#8a7a5a", fontWeight:700, padding:"2px 8px", borderRadius:4, textTransform:"uppercase", letterSpacing:"0.05em" }}>{getWeekLabel(task.week)}</span>
+                      {task.doneAt&&<span style={{ fontSize:10, background:"#F0FFF4", color:"#2a7a3a", fontWeight:700, padding:"2px 8px", borderRadius:4, textTransform:"uppercase", letterSpacing:"0.05em" }}>✓ {fmtDate(task.doneAt)}</span>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* ── MODAL ── */}
+      {modal && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(9,25,41,.6)", zIndex:200, display:"flex", alignItems:"flex-start", justifyContent:"center", padding:"5vh 20px 20px", overflowY:"auto" }}
+          onClick={e=>e.target===e.currentTarget&&closeModal()}>
+          <div style={{ background:"#F5F0E8", border:"1px solid #E0D5C4", borderRadius:16, padding:12, width:"100%", maxWidth:440, animation:"modalIn .2s ease forwards", borderTop:"3px solid #C8960A" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+              <h3 style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:20, color:"#091929", letterSpacing:"0.04em" }}>
+                {modal==="event"?"Nuevo evento":modal==="task-week"?"Nueva tarea · Esta semana":modal==="task-future"?"Nueva tarea · Futuro":modal==="doc"?"Añadir documento":modal==="expense"?"Añadir gasto":"Nueva nota"}
+              </h3>
+              <GhostBtn onClick={closeModal}><Ico n="x" s={18}/></GhostBtn>
+            </div>
+
+            {modal==="event"&&<>
+              <Field label="Título"><input style={inputSt} value={form.title||""} onChange={e=>setF("title",e.target.value)} placeholder="ej. Reunión con cliente" autoFocus/></Field>
+              <Field label="Fecha"><input type="date" style={inputSt} value={form.date||""} onChange={e=>setF("date",e.target.value)}/></Field>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
+                <Field label="Hora inicio">
+                  <input type="time" style={inputSt} value={form.timeStart||""} onChange={e=>setF("timeStart",e.target.value)}/>
+                </Field>
+                <Field label="Hora fin">
+                  <input type="time" style={inputSt} value={form.timeEnd||""} onChange={e=>setF("timeEnd",e.target.value)}/>
+                </Field>
+              </div>
+              <Field label="Tipo"><div style={{ display:"flex", gap:8 }}>{EVENT_TYPES.map(et=><button key={et.id} onClick={()=>setF("eventType",et.id)} style={{ flex:1, padding:"7px 0", borderRadius:8, border:`1.5px solid ${form.eventType===et.id?et.color:"#E0D5C4"}`, background:form.eventType===et.id?et.color+"18":"#fff", color:form.eventType===et.id?et.color:"#b8a888", fontSize:12, fontFamily:"'DM Sans',sans-serif", fontWeight:700, cursor:"pointer" }}>{et.label}</button>)}</div></Field>
+              <Field label="Nota (opcional)"><input style={inputSt} value={form.note||""} onChange={e=>setF("note",e.target.value)} placeholder="Detalles..."/></Field>
+              <BtnPrimary onClick={addEvent} style={{ width:"100%", justifyContent:"center", padding:"10px 0" }}>Guardar evento</BtnPrimary>
+            </>}
+            {(modal==="task-week"||modal==="task-future")&&<>
+              <Field label="Tarea"><input style={inputSt} value={form.text||""} onChange={e=>setF("text",e.target.value)} placeholder="Describe la tarea…" autoFocus onKeyDown={e=>e.key==="Enter"&&(modal==="task-week"?addWeekTask():addFutureTask())}/></Field>
+              <Field label="Fecha límite (opcional)"><input type="date" style={inputSt} value={form.deadline||""} onChange={e=>setF("deadline",e.target.value)}/></Field>
+              <Field label="Importancia">
+                <div style={{ display:"flex", gap:8 }}>
+                  <button onClick={()=>setF("priority","normal")}
+                    style={{ flex:1, padding:"8px 0", borderRadius:8, border:`1.5px solid ${(!form.priority||form.priority==="normal")?"#0A3F6A":"#E0D5C4"}`, background:(!form.priority||form.priority==="normal")?"#EEF5FF":"#fff", color:(!form.priority||form.priority==="normal")?"#0A3F6A":"#b8a888", fontSize:12, fontFamily:"'DM Sans',sans-serif", fontWeight:700, cursor:"pointer" }}>
+                    Normal
+                  </button>
+                  <button onClick={()=>setF("priority","high")}
+                    style={{ flex:1, padding:"8px 0", borderRadius:8, border:`1.5px solid ${form.priority==="high"?"#C8960A":"#E0D5C4"}`, background:form.priority==="high"?"#FFF8EE":"#fff", color:form.priority==="high"?"#C8960A":"#b8a888", fontSize:12, fontFamily:"'DM Sans',sans-serif", fontWeight:700, cursor:"pointer" }}>
+                    ● Alta importancia
+                  </button>
+                </div>
+              </Field>
+              <BtnPrimary onClick={modal==="task-week"?addWeekTask:addFutureTask} style={{ width:"100%", justifyContent:"center", padding:"10px 0" }}>Guardar tarea</BtnPrimary>
+            </>}
+            {modal==="doc"&&<>
+              <Field label="Nombre"><input style={inputSt} value={form.docName||""} onChange={e=>setF("docName",e.target.value)} placeholder="ej. Contrato cliente Acme" autoFocus/></Field>
+              <Field label="Enlace"><input style={inputSt} value={form.docUrl||""} onChange={e=>setF("docUrl",e.target.value)} placeholder="https://drive.google.com/..."/></Field>
+              <Field label="Categoría"><div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>{DOC_CATEGORIES.map(cat=><button key={cat.id} onClick={()=>setF("docCat",cat.id)} style={{ flex:"1 1 auto", padding:"7px 0", borderRadius:8, border:`1.5px solid ${form.docCat===cat.id?cat.color:"#E0D5C4"}`, background:form.docCat===cat.id?cat.color+"18":"#fff", color:form.docCat===cat.id?cat.color:"#b8a888", fontSize:12, fontFamily:"'DM Sans',sans-serif", fontWeight:700, cursor:"pointer" }}>{cat.label}</button>)}</div></Field>
+              <Field label="Descripción (opcional)"><input style={inputSt} value={form.docNote||""} onChange={e=>setF("docNote",e.target.value)} placeholder="Para qué sirve…"/></Field>
+              <BtnPrimary onClick={addDoc} style={{ width:"100%", justifyContent:"center", padding:"10px 0" }}>Guardar documento</BtnPrimary>
+            </>}
+            {modal==="expense"&&<>
+              <Field label="Descripción del gasto">
+                <input style={inputSt} value={form.expDesc||""} onChange={e=>setF("expDesc",e.target.value)} placeholder="ej. Desayuno con cliente, gasolina…" autoFocus/>
+              </Field>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                <Field label="Importe (€)">
+                  <input type="number" step="0.01" style={inputSt} value={form.expAmount||""} onChange={e=>setF("expAmount",e.target.value)} placeholder="0.00"/>
+                </Field>
+                <Field label="Fecha">
+                  <input type="date" style={inputSt} value={form.expDate||td} onChange={e=>setF("expDate",e.target.value)}/>
+                </Field>
+              </div>
+              <Field label="¿Quién paga?">
+                <div style={{ display:"flex", gap:8 }}>
+                  {["Yo","Mi socia","Empresa"].map(w=>(
+                    <button key={w} onClick={()=>setF("expWho",w)}
+                      style={{ flex:1, padding:"8px 0", borderRadius:8, border:`1.5px solid ${form.expWho===w?"#0A3F6A":"#E0D5C4"}`, background:form.expWho===w?"#0A3F6A":"#fff", color:form.expWho===w?"#fff":"#b8a888", fontSize:12, fontFamily:"'DM Sans',sans-serif", fontWeight:700, cursor:"pointer" }}>
+                      {w}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+              <Field label="Categoría">
+                <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                  {EXPENSE_CATS.map(c=>(
+                    <button key={c} onClick={()=>setF("expCat",c)}
+                      style={{ padding:"6px 12px", borderRadius:8, border:`1.5px solid ${form.expCat===c?"#C8960A":"#E0D5C4"}`, background:form.expCat===c?"#FFF8EE":"#fff", color:form.expCat===c?"#C8960A":"#8a7a5a", fontSize:12, fontFamily:"'DM Sans',sans-serif", fontWeight:600, cursor:"pointer" }}>
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+              <BtnPrimary onClick={addExpense} style={{ width:"100%", justifyContent:"center", padding:"10px 0" }}>Guardar gasto</BtnPrimary>
+            </>}
+            {modal==="note"&&<>
+              <Field label="Nota"><textarea style={{ ...inputSt, minHeight:100, resize:"vertical" }} value={form.text||""} onChange={e=>setF("text",e.target.value)} placeholder="Idea, enlace, apunte rápido…" autoFocus/></Field>
+              <BtnPrimary onClick={addNote} style={{ width:"100%", justifyContent:"center", padding:"10px 0" }}>Guardar nota</BtnPrimary>
+            </>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(React.createElement(App));
+  </script>
+</body>
+</html>
